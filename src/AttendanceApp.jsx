@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { CalendarDays, Plus, Trash2, ChevronLeft, ChevronRight, BarChart2 } from "lucide-react";
+import { db } from "./firebase";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 
 // Minimal modern CSS for the app
 const style = `
@@ -54,31 +56,9 @@ function getWeekday(dateStr) {
 	return WEEKDAYS[new Date(dateStr).getDay() === 0 ? 6 : new Date(dateStr).getDay() - 1];
 }
 
-function load(key, fallback) {
-	try {
-		const data = localStorage.getItem(key);
-		return data ? JSON.parse(data) : fallback;
-	} catch {
-		return fallback;
-	}
-}
-
-function save(key, value) {
-	localStorage.setItem(key, JSON.stringify(value));
-}
-
-
-export default function AttendanceApp() {
+export default function AttendanceApp({ user }) {
 	// Subjects: [{ name: string, days: [string] }]
-	const [subjects, setSubjects] = useState(() => {
-		// Migrate old data: if any subject is missing 'days', default to all weekdays (Mon-Fri)
-		const loaded = load("subjects", []);
-		return loaded.map(subj =>
-			subj && Array.isArray(subj.days)
-				? subj
-				: { name: subj.name || String(subj), days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] }
-		);
-	});
+	const [subjects, setSubjects] = useState([]);
 	const [newSubject, setNewSubject] = useState("");
 	const [subjectDays, setSubjectDays] = useState([]);
 
@@ -94,14 +74,32 @@ export default function AttendanceApp() {
 	}, [subjects]);
 
 	// Attendance: { "2025-09-14": { subject: "present" } }
-	const [attendance, setAttendance] = useState(() => load("attendance", {}));
+	const [attendance, setAttendance] = useState({});
 
 	// Date navigation
 	const [selectedDate, setSelectedDate] = useState(getTodayISO());
 
-	// Save to localStorage on change
-	useEffect(() => { save("subjects", subjects); }, [subjects]);
-	useEffect(() => { save("attendance", attendance); }, [attendance]);
+	// Load data from Firestore on mount
+	useEffect(() => {
+		if (!user) return;
+		const fetchData = async () => {
+			const ref = doc(db, "users", user.uid);
+			const snap = await getDoc(ref);
+			if (snap.exists()) {
+				const data = snap.data();
+				setSubjects(Array.isArray(data.subjects) ? data.subjects : []);
+				setAttendance(data.attendance || {});
+			}
+		};
+		fetchData();
+	}, [user]);
+
+	// Save data to Firestore on change
+	useEffect(() => {
+		if (!user) return;
+		const ref = doc(db, "users", user.uid);
+		setDoc(ref, { subjects, attendance }, { merge: true });
+	}, [subjects, attendance, user]);
 
 	function handleAddSubject() {
 		const name = newSubject.trim();
@@ -122,7 +120,6 @@ export default function AttendanceApp() {
 		setAttendance(newAttendance);
 	}
 
-	// Attendance marking
 	function handleMarkAttendance(subject, status) {
 		setAttendance(att => {
 			const rec = att[selectedDate] || {};
