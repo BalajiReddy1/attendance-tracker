@@ -12,6 +12,10 @@ export default function AuthPage({ onAuth }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    if (!isLogin && !email.endsWith("@ves.ac.in")) {
+      setError("Sign up allowed only with college email (@ves.ac.in)");
+      return;
+    }
     setLoading(true);
     try {
       if (isLogin) {
